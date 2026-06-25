@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { prisma } from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { queueMonitoringSweep } from '../queues/monitoring.queue';
 import { 
   analyzeGoal, 
   generatePlan, 
@@ -407,5 +408,23 @@ export const applyRecoveryPlanEndpoint = async (req: AuthenticatedRequest, res: 
   } catch (error) {
     console.error('AI apply-recovery-plan error:', error);
     return res.status(500).json({ success: false, message: 'Failed to apply recovery plan' });
+  }
+};
+
+export const triggerMonitoringEndpoint = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    await queueMonitoringSweep();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Background monitoring sweep queued successfully',
+    });
+  } catch (error) {
+    console.error('AI trigger-monitoring error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to queue monitoring sweep' });
   }
 };

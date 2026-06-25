@@ -5,7 +5,8 @@ import {
   evaluateRiskEndpoint,
   standupEndpoint,
   generateRecoveryPlanEndpoint,
-  applyRecoveryPlanEndpoint
+  applyRecoveryPlanEndpoint,
+  triggerMonitoringEndpoint
 } from '../controllers/ai.controller';
 import { authenticate } from '../middleware/auth.middleware';
 
@@ -30,5 +31,8 @@ router.post('/recovery-plan', generateRecoveryPlanEndpoint);
 
 // POST /api/v1/ai/recovery-plan/apply
 router.post('/recovery-plan/apply', applyRecoveryPlanEndpoint);
+
+// POST /api/v1/ai/trigger-monitoring
+router.post('/trigger-monitoring', triggerMonitoringEndpoint);
 
 export default router;
