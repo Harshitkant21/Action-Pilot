@@ -60,6 +60,13 @@ const GoalDetails: React.FC = () => {
   const [standupLoading, setStandupLoading] = useState(false);
   const [standupError, setStandupError] = useState<string | null>(null);
 
+  // Recovery States
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
+  const [recoveryData, setRecoveryData] = useState<any>(null);
+  const [applyingPlan, setApplyingPlan] = useState(false);
+
   // Form states for Check-In
   const [updateText, setUpdateText] = useState('');
   const [progressPercentage, setProgressPercentage] = useState(50);
@@ -146,6 +153,42 @@ const GoalDetails: React.FC = () => {
       setStandupError(err.response?.data?.message || 'Failed to communicate with AI');
     } finally {
       setStandupLoading(false);
+    }
+  };
+
+  const handleGenerateRecoveryPlan = async () => {
+    setRecoveryError(null);
+    setRecoveryLoading(true);
+    try {
+      const response = await api.post('/ai/recovery-plan', { goalId });
+      if (response.data.success) {
+        setRecoveryData(response.data.data);
+        setIsRecoveryOpen(true);
+      } else {
+        setRecoveryError(response.data.message || 'Failed to generate recovery plan');
+      }
+    } catch (err: any) {
+      setRecoveryError(err.response?.data?.message || 'Failed to communicate with Recovery Agent');
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
+  const handleApplyRecoveryPlan = async () => {
+    setRecoveryError(null);
+    setApplyingPlan(true);
+    try {
+      const response = await api.post('/ai/recovery-plan/apply', { goalId });
+      if (response.data.success) {
+        setIsRecoveryOpen(false);
+        queryClient.invalidateQueries({ queryKey: ['goal', goalId] });
+      } else {
+        setRecoveryError(response.data.message || 'Failed to apply recovery plan');
+      }
+    } catch (err: any) {
+      setRecoveryError(err.response?.data?.message || 'Failed to apply recovery plan');
+    } finally {
+      setApplyingPlan(false);
     }
   };
 
@@ -245,6 +288,47 @@ const GoalDetails: React.FC = () => {
           <ArrowLeft className="w-4 h-4" />
           Back to Dashboard
         </button>
+
+        {/* High-Risk Intervention Warning Banner */}
+        {goal.riskScore >= 70 && (
+          <div className="bg-rose-500/10 border border-rose-500/30 text-rose-200 rounded-lg p-5 mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-6 h-6 text-rose-500 shrink-0 mt-0.5 animate-pulse" />
+              <div>
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider font-outfit">High-Risk Alert: Goal Execution Compromised</h4>
+                <p className="text-xs text-rose-300/80 mt-1 max-w-2xl leading-relaxed">
+                  This goal has a risk score of {goal.riskScore}%. The AI coach recommends generating an adaptive recovery plan to reschedule remaining tasks, reprioritize activities, or suggest scope reductions.
+                </p>
+              </div>
+            </div>
+            <div>
+              <button
+                onClick={handleGenerateRecoveryPlan}
+                disabled={recoveryLoading}
+                className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-md hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+              >
+                {recoveryLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Activity className="w-4 h-4" />
+                    Generate Recovery Plan
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {recoveryError && !isRecoveryOpen && (
+          <div className="mb-8 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm text-center">
+            {recoveryError}
+          </div>
+        )}
 
         {/* Goal Detail Header */}
         <div className="glass-panel p-8 mb-8 relative overflow-hidden">
@@ -716,6 +800,143 @@ const GoalDetails: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Recovery Plan Comparison Modal */}
+      {isRecoveryOpen && recoveryData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-dark-bg/85 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-4xl glass-panel p-8 my-8 relative max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center mb-4 border-b border-dark-border/30 pb-3">
+              <h3 className="text-2xl font-bold text-white font-outfit flex items-center gap-2">
+                <Activity className="w-6 h-6 text-dark-accent" />
+                Proposed Adaptive Recovery Plan
+              </h3>
+              <button 
+                onClick={() => setIsRecoveryOpen(false)}
+                className="text-dark-muted hover:text-white transition text-lg font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            {recoveryError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm text-center">
+                {recoveryError}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+              <p className="text-sm text-dark-muted leading-relaxed">
+                Review the AI Coach's proposed recovery plan. Applying this plan will update your execution task list.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Side: Suggestions */}
+                <div className="glass-panel p-5 bg-dark-card/25 border-dark-border/30 flex flex-col">
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider font-outfit border-b border-dark-border/20 pb-2 mb-4">
+                    Coach Recommendations
+                  </h4>
+                  <ul className="space-y-3 flex-1">
+                    {recoveryData.suggestions?.map((suggestion: string, idx: number) => (
+                      <li key={idx} className="text-xs text-indigo-200 flex items-start gap-2.5 bg-indigo-500/5 border border-indigo-500/10 p-3 rounded-lg leading-relaxed">
+                        <span className="bg-indigo-500/20 text-indigo-400 rounded-full w-5 h-5 flex items-center justify-center font-bold text-[10px] shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span>{suggestion}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Right Side: Proposed Tasks */}
+                <div className="glass-panel p-5 bg-dark-card/25 border-dark-border/30 flex flex-col">
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider font-outfit border-b border-dark-border/20 pb-2 mb-4">
+                    Revised Checklist Tasks
+                  </h4>
+                  <div className="space-y-3 overflow-y-auto max-h-[350px] pr-1">
+                    {recoveryData.revisedTasks?.map((task: any, idx: number) => (
+                      <div 
+                        key={idx} 
+                        className={`p-3 rounded-lg border text-left ${
+                          task.status === 'COMPLETED' 
+                            ? 'bg-dark-border/10 border-dark-border/20 opacity-60' 
+                            : 'bg-dark-bg/40 border-dark-border/40'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex items-center gap-2">
+                            {task.status === 'COMPLETED' ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            ) : task.status === 'IN_PROGRESS' ? (
+                              <Loader2 className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />
+                            ) : (
+                              <Circle className="w-4 h-4 text-dark-muted shrink-0" />
+                            )}
+                            <span className="text-xs font-semibold text-white font-outfit">{task.title}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <span className={`text-[8px] font-bold px-1 py-0.5 rounded uppercase tracking-wider ${
+                              task.priority === 'HIGH' 
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
+                                : task.priority === 'MEDIUM'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : 'bg-gray-500/10 text-gray-400'
+                            }`}>
+                              {task.priority}
+                            </span>
+                            <span className={`text-[8px] font-bold px-1 py-0.5 rounded uppercase tracking-wider ${
+                              task.status === 'COMPLETED'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : task.status === 'IN_PROGRESS'
+                                ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                                : 'bg-gray-500/10 text-gray-400'
+                            }`}>
+                              {task.status}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-dark-muted mt-1 leading-relaxed">{task.description}</p>
+                        <div className="text-[9px] text-dark-muted font-mono mt-1 flex justify-between">
+                          <span>Est: {task.estimatedHours} hrs</span>
+                          <span>Timeline Offset: {Math.round(task.timelineProgress * 100)}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-dark-border/40 pt-5 mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={applyingPlan}
+                onClick={() => setIsRecoveryOpen(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyRecoveryPlan}
+                disabled={applyingPlan}
+                className="bg-indigo-500 hover:bg-indigo-600 text-white px-5 py-2.5 rounded font-bold transition flex items-center gap-1.5 shadow-md hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+              >
+                {applyingPlan ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Applying Plan...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5" />
+                    Apply Recovery Plan
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

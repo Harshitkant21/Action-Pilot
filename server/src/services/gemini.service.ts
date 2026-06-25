@@ -353,3 +353,109 @@ Provide your standup assessment as JSON.`;
     return null;
   }
 }
+
+// ── Recovery Agent ──────────────────────────────────────────────────────────
+
+export interface RevisedTask {
+  title: string;
+  description: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  estimatedHours: number;
+  timelineProgress: number;
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+}
+
+export interface RecoveryPlan {
+  suggestions: string[];
+  revisedTasks: RevisedTask[];
+}
+
+const RECOVERY_AGENT_SYSTEM = `You are a Recovery Agent for ActionPilot, an AI Execution Companion.
+Your role is to formulate a recovery plan for a user's goal that is delayed or at risk.
+Given the goal info, the list of current checklist tasks, and recent progress updates, you must:
+1. Provide 2-3 specific, actionable recommendations (suggestions) to recover from delays (e.g. reprioritize, defer, or reduce the scope of remaining tasks).
+2. Generate a revised list of tasks representing the optimized path to completion.
+3. IMPORTANT CRITICAL RULE: You MUST keep all currently "COMPLETED" tasks exactly as they are in the list. Do not change their title, description, priority, hours, or set their status to pending. Only modify, reprioritize, reschedule, or remove tasks that are "PENDING" or "IN_PROGRESS".
+
+Respond ONLY with valid JSON matching the schema.`;
+
+const recoverySchema: any = {
+  type: SchemaType.OBJECT,
+  properties: {
+    suggestions: {
+      type: SchemaType.ARRAY,
+      items: { type: SchemaType.STRING },
+      description: '2-3 scope reduction or schedule adjustment suggestions',
+    },
+    revisedTasks: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          title: { type: SchemaType.STRING },
+          description: { type: SchemaType.STRING },
+          priority: { type: SchemaType.STRING, description: 'LOW, MEDIUM, or HIGH' },
+          estimatedHours: { type: SchemaType.INTEGER },
+          timelineProgress: { type: SchemaType.NUMBER, description: '0.0 to 1.0 timeline offset' },
+          status: { type: SchemaType.STRING, description: 'PENDING, IN_PROGRESS, or COMPLETED' },
+        },
+        required: ['title', 'description', 'priority', 'estimatedHours', 'timelineProgress', 'status'],
+      },
+    },
+  },
+  required: ['suggestions', 'revisedTasks'],
+};
+
+export async function generateRecoveryPlan(
+  title: string,
+  description: string,
+  deadline: Date,
+  tasks: { title: string; status: string; priority: string; estimatedHours: number | null }[],
+  progressLogs: { updateText: string; progressPercentage: number; executionStatus: string | null; blockerDescription: string | null; confidenceScore: number | null; createdAt: Date }[],
+  riskExplanation?: string
+): Promise<RecoveryPlan | null> {
+  const model = getModel();
+  if (!model) {
+    console.warn('[Gemini] API key not configured – skipping recovery plan generation');
+    return null;
+  }
+
+  const now = new Date();
+  const timeRemainingHours = Math.max(1, Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60)));
+  const daysRemaining = (timeRemainingHours / 24).toFixed(1);
+
+  const prompt = `Formulate a recovery plan for this goal:
+
+Title: ${title}
+Description: ${description}
+Deadline: ${deadline.toISOString()} (${daysRemaining} days remaining)
+
+Current Checklist Tasks:
+${tasks.map(t => `- [${t.status}] ${t.title} (${t.priority} priority, ${t.estimatedHours || 0}h)`).join('\n')}
+
+Progress Log Updates (Newest First):
+${progressLogs.slice(0, 5).map(l => `- [${l.createdAt.toISOString()}] Progress: ${l.progressPercentage}%, Status: ${l.executionStatus || 'ON_TRACK'}, Confidence: ${l.confidenceScore || 'N/A'}/5, Blocker: ${l.blockerDescription || 'None'}\n  "${l.updateText}"`).join('\n')}
+
+${riskExplanation ? `Latest Risk Assessment Diagnosis:\n"${riskExplanation}"` : ''}
+
+Generate suggestions and the revised task list. Remember: Keep completed tasks unchanged in status and content. Respond as JSON.`;
+
+  try {
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      systemInstruction: RECOVERY_AGENT_SYSTEM,
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: recoverySchema,
+        temperature: 0.4,
+      },
+    });
+
+    const text = result.response.text();
+    const parsed = JSON.parse(text) as RecoveryPlan;
+    return parsed;
+  } catch (error) {
+    console.error('[Gemini] Recovery plan generation failed:', error);
+    return null;
+  }
+}
