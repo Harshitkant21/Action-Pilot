@@ -1,0 +1,153 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum GoalStatus {
+  DRAFT
+  PLANNED
+  ACTIVE
+  AT_RISK
+  DELAYED
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum NotificationType {
+  DAILY_STANDUP
+  RISK_ALERT
+  PROGRESS_REMINDER
+  RECOVERY_SUGGESTION
+  GOAL_COMPLETION
+}
+
+enum AgentType {
+  GOAL_ANALYZER
+  PLANNER
+  RISK
+  RECOVERY
+  STANDUP
+}
+
+model User {
+  id           String         @id @default(uuid())
+  name         String
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  goals        Goal[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Goal {
+  id                   String        @id @default(uuid())
+  userId               String        @map("user_id")
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title                String
+  description          String        @db.Text
+  deadline             DateTime
+  status               GoalStatus    @default(DRAFT)
+  complexity           String? // Enum-like string or custom values
+  estimatedEffortHours Int?          @map("estimated_effort_hours")
+  riskScore            Int           @default(0) @map("risk_score")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+  tasks                Task[]
+  progressLogs         ProgressLog[]
+  agentReports         AgentReport[]
+
+  @@index([userId])
+  @@index([deadline])
+  @@index([status])
+  @@index([createdAt])
+  @@map("goals")
+}
+
+model Task {
+  id             String        @id @default(uuid())
+  goalId         String        @map("goal_id")
+  goal           Goal          @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?       @db.Text
+  status         TaskStatus    @default(PENDING)
+  priority       TaskPriority  @default(MEDIUM)
+  dueDate        DateTime?     @map("due_date")
+  estimatedHours Int?          @map("estimated_hours")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  progressLogs   ProgressLog[]
+
+  @@index([goalId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("tasks")
+}
+
+model ProgressLog {
+  id                       String   @id @default(uuid())
+  goalId                   String   @map("goal_id")
+  goal                     Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  taskId                   String?  @map("task_id")
+  task                     Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  updateText               String   @db.Text @map("update_text")
+  progressPercentage       Int      @map("progress_percentage")
+  // Configurable fields from PROJECT_GUARDRAILS.md Check-In System:
+  executionStatus          String?  @map("execution_status") // e.g. "ON_TRACK", "BEHIND", "BLOCKED"
+  blockerDescription       String?  @db.Text @map("blocker_description")
+  estimatedHoursRemaining  Int?     @map("estimated_hours_remaining")
+  confidenceScore          Int?     @map("confidence_score")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@index([goalId])
+  @@index([taskId])
+  @@index([createdAt])
+  @@map("progress_logs")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model AgentReport {
+  id        String    @id @default(uuid())
+  goalId    String    @map("goal_id")
+  goal      Goal      @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  agentType AgentType @map("agent_type")
+  summary   String    @db.Text
+  metadata  Json      @default("{}")
+  createdAt DateTime  @map("created_at") @default(now())
+
+  @@index([goalId])
+  @@index([createdAt])
+  @@map("agent_reports")
+}

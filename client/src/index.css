@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-dark-bg text-dark-text font-sans antialiased selection:bg-dark-accent/30 selection:text-white;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(21, 29, 48, 0.5) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(100, 255, 218, 0.05) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-outfit font-semibold tracking-tight;
+  }
+}
+
+/* Premium UI Utility Classes */
+.glass-panel {
+  @apply bg-dark-card/60 backdrop-blur-md border border-dark-border/40 rounded-xl shadow-glass;
+}
+
+.glass-input {
+  @apply bg-dark-bg/60 border border-dark-border/60 rounded-lg px-4 py-2.5 text-white placeholder-dark-muted/60 focus:outline-none focus:border-dark-accent focus:ring-1 focus:ring-dark-accent/40 transition duration-200;
+}
+
+.btn-primary {
+  @apply bg-dark-accent hover:bg-dark-accent/90 text-dark-bg font-outfit font-semibold px-6 py-2.5 rounded-lg transition duration-300 transform active:scale-95 shadow-lg shadow-dark-accent/10 hover:shadow-dark-accent/20 cursor-pointer;
+}
+
+.btn-secondary {
+  @apply bg-transparent hover:bg-dark-border/30 text-dark-text font-outfit border border-dark-border px-6 py-2.5 rounded-lg transition duration-200 active:scale-95 cursor-pointer;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-dark-bg;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-dark-border rounded-full hover:bg-dark-muted/40;
+}
