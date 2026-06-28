@@ -2,6 +2,8 @@ import { Worker } from 'bullmq';
 import { redisConnection } from '../config/redis';
 import { prisma } from '../config/prisma';
 import { evaluateRisk, generateStandup, generateRecoveryPlan } from '../services/gemini.service';
+import { sendPushNotification } from '../controllers/notification.controller';
+import { appConfig } from '../config/appConfig';
 
 export const monitoringWorker = new Worker(
   'monitoring-queue',
@@ -65,6 +67,12 @@ export const monitoringWorker = new Worker(
                     message: `It has been over 24 hours since your last progress check-in for goal "${goal.title}". Let's log an update to keep your momentum going!`,
                   },
                 });
+                // Send Web Push notification
+                sendPushNotification(
+                  goal.userId,
+                  'Progress Update Reminder ⏰',
+                  `It has been over 24 hours since your last check-in for "${goal.title}". Let's log progress!`
+                ).catch(err => console.error('Push failed:', err));
                 console.log(`[Worker] Inactivity notification created for user ${goal.userId}`);
               }
             }
@@ -72,7 +80,7 @@ export const monitoringWorker = new Worker(
             // 2. RISK EVALUATION
             const lastRiskReport = goal.agentReports.find(r => r.agentType === 'RISK');
             const shouldRunRisk = !lastRiskReport || 
-              (now.getTime() - new Date(lastRiskReport.createdAt).getTime()) / (1000 * 60 * 60) >= 4 ||
+              (now.getTime() - new Date(lastRiskReport.createdAt).getTime()) / (1000 * 60 * 60) >= appConfig.riskCooldownHours ||
               (latestLog && new Date(latestLog.createdAt) > new Date(lastRiskReport.createdAt));
 
             let currentRiskScore = goal.riskScore;
@@ -117,7 +125,7 @@ export const monitoringWorker = new Worker(
                 });
 
                 // Trigger a notification if risk is high
-                if (currentRiskScore >= 70) {
+                if (currentRiskScore >= appConfig.riskThreshold) {
                   await prisma.notification.create({
                     data: {
                       userId: goal.userId,
@@ -126,14 +134,30 @@ export const monitoringWorker = new Worker(
                       message: `Execution risk is high (${currentRiskScore}%) for your goal "${goal.title}". Reason: ${assessment.explanation}`,
                     },
                   });
+                  // Send Web Push notification
+                  sendPushNotification(
+                    goal.userId,
+                    'High Risk Alert 🚨',
+                    `Risk is high (${currentRiskScore}%) for "${goal.title}".`
+                  ).catch(err => console.error('Push failed:', err));
                 }
 
                 console.log(`[Worker] Risk evaluation updated for "${goal.title}": ${assessment.riskScore}%`);
+              } else {
+                console.warn(`[Worker] Risk evaluation failed/returned null for goal "${goal.title}". Creating cooldown report.`);
+                await prisma.agentReport.create({
+                  data: {
+                    goalId: goal.id,
+                    agentType: 'RISK',
+                    summary: `Risk Level: LOW (AI rate limit fallback). Score: ${goal.riskScore}%. Explanation: AI Risk Assessment temporary cooldown marker due to API rate limit limits.`,
+                    metadata: { failed: true, riskScore: goal.riskScore, riskLevel: 'LOW', explanation: 'AI Offline/Rate limit cooldown active. Defaulting to previous state.' } as any,
+                  },
+                });
               }
             }
 
             // 3. RECOVERY TRIGGER
-            if (currentRiskScore >= 70) {
+            if (currentRiskScore >= appConfig.riskThreshold) {
               const lastRecoveryReport = goal.agentReports.find(r => r.agentType === 'RECOVERY');
               const shouldRunRecovery = !lastRecoveryReport || 
                 (lastRiskReport && new Date(lastRecoveryReport.createdAt) < new Date(lastRiskReport.createdAt)) ||
@@ -170,7 +194,23 @@ export const monitoringWorker = new Worker(
                       message: `ActionPilot detected high execution risk (${currentRiskScore}%) for your goal "${goal.title}". A recovery plan has been generated to get you back on track.`,
                     },
                   });
+                  // Send Web Push notification
+                  sendPushNotification(
+                    goal.userId,
+                    'Adaptive Recovery Plan Ready 🛡️',
+                    `A recovery plan has been generated for your goal "${goal.title}" to get you back on track.`
+                  ).catch(err => console.error('Push failed:', err));
                   console.log(`[Worker] Recovery plan auto-generated for goal "${goal.title}"`);
+                } else {
+                  console.warn(`[Worker] Recovery plan generation failed/returned null for goal "${goal.title}". Creating cooldown report.`);
+                  await prisma.agentReport.create({
+                    data: {
+                      goalId: goal.id,
+                      agentType: 'RECOVERY',
+                      summary: `Recovery suggestions temporarily unavailable (AI offline).`,
+                      metadata: { failed: true, suggestions: ['Maintain velocity and check tasks.'], revisedTasks: [] } as any,
+                    },
+                  });
                 }
               }
             }
@@ -178,9 +218,9 @@ export const monitoringWorker = new Worker(
             // 4. DAILY STANDUP
             const lastStandupReport = goal.agentReports.find(r => r.agentType === 'STANDUP');
             const shouldRunStandup = !lastStandupReport || 
-              (now.getTime() - new Date(lastStandupReport.createdAt).getTime()) / (1000 * 60 * 60) >= 22;
+              (now.getTime() - new Date(lastStandupReport.createdAt).getTime()) / (1000 * 60 * 60) >= appConfig.standupCooldownHours;
 
-            if (shouldRunStandup) {
+             if (shouldRunStandup) {
               console.log(`[Worker] Running AI Standup Agent for goal "${goal.title}"...`);
               const standup = await generateStandup(
                 goal.title,
@@ -208,7 +248,23 @@ export const monitoringWorker = new Worker(
                     message: `Your daily standup summary for "${goal.title}" has been prepared by your AI Coach.`,
                   },
                 });
+                // Send Web Push notification
+                sendPushNotification(
+                  goal.userId,
+                  'Daily Standup Summary 📅',
+                  `Your daily standup briefing for "${goal.title}" has been prepared by your AI Coach.`
+                ).catch(err => console.error('Push failed:', err));
                 console.log(`[Worker] Standup report auto-generated for goal "${goal.title}"`);
+              } else {
+                console.warn(`[Worker] Standup generation failed/returned null for goal "${goal.title}". Creating cooldown report.`);
+                await prisma.agentReport.create({
+                  data: {
+                    goalId: goal.id,
+                    agentType: 'STANDUP',
+                    summary: `AI Standup: Summary temporarily unavailable.`,
+                    metadata: { failed: true, summary: 'Daily coach standup is temporarily offline due to API rate limit limits.', confidence: 50, recommendations: [], followUpQuestions: [] } as any,
+                  },
+                });
               }
             }
 

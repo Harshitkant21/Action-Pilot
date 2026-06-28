@@ -112,7 +112,11 @@ const Dashboard: React.FC = () => {
                 <div
                   key={goal.id}
                   onClick={() => navigate(`/goals/${goal.id}`)}
-                  className="glass-panel p-6 hover:border-dark-accent/40 transition duration-300 group cursor-pointer flex flex-col justify-between hover:translate-y-[-2px]"
+                  className={`glass-panel p-6 transition duration-300 group cursor-pointer flex flex-col justify-between hover:translate-y-[-2px] ${
+                    goal.status === 'AT_RISK' || goal.riskScore >= 70
+                      ? 'border-rose-500/40 hover:border-rose-500 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.15)]'
+                      : 'hover:border-dark-accent/40'
+                  }`}
                 >
                   <div>
                     <div className="flex justify-between items-start gap-4 mb-3">

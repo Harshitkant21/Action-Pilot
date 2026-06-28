@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq';
 import { redisConnection } from '../config/redis';
+import { appConfig } from '../config/appConfig';
 
 export const monitoringQueue = new Queue('monitoring-queue', {
   connection: redisConnection,
@@ -13,17 +14,17 @@ export const setupRepeatableJobs = async () => {
       await monitoringQueue.removeRepeatableByKey(job.key);
     }
 
-    // Schedule 'check-active-goals' to run every hour: '0 * * * *'
+    // Schedule 'check-active-goals' to run periodically
     await monitoringQueue.add(
       'check-active-goals',
       {},
       {
         repeat: {
-          pattern: '0 * * * *',
+          every: appConfig.monitoringSweepIntervalMs,
         },
       }
     );
-    console.log('[Queue] Periodic monitoring job scheduled successfully (every hour).');
+    console.log(`[Queue] Periodic monitoring job scheduled successfully (every ${appConfig.monitoringSweepIntervalMs} ms).`);
   } catch (error) {
     console.error('[Queue] Failed to setup repeatable jobs:', error);
   }

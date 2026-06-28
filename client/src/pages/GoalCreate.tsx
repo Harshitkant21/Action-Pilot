@@ -19,8 +19,36 @@ const GoalCreate: React.FC = () => {
     setLoading(true);
 
     try {
-      // Merge date and time into ISO string
-      const isoDeadline = new Date(`${deadline}T${time}:00`).toISOString();
+      if (!title.trim() || title.trim().length < 3) {
+        setError('Goal Title must be at least 3 characters.');
+        setLoading(false);
+        return;
+      }
+      if (!description.trim() || description.trim().length < 10) {
+        setError('Description must be at least 10 characters.');
+        setLoading(false);
+        return;
+      }
+      if (!deadline) {
+        setError('Please select a valid deadline date.');
+        setLoading(false);
+        return;
+      }
+      
+      const parsedDeadline = new Date(`${deadline}T${time}:00`);
+      if (isNaN(parsedDeadline.getTime())) {
+        setError('Invalid deadline format.');
+        setLoading(false);
+        return;
+      }
+      
+      if (parsedDeadline.getTime() < Date.now() + 60 * 60 * 1000) {
+        setError('Deadline must be set at least 1 hour into the future.');
+        setLoading(false);
+        return;
+      }
+
+      const isoDeadline = parsedDeadline.toISOString();
 
       const response = await api.post('/goals', {
         title,
@@ -84,18 +112,19 @@ const GoalCreate: React.FC = () => {
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm text-center">
+            <div aria-live="polite" className="mb-6 p-4 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-sm text-center">
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="flex flex-col">
-              <label className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
+              <label htmlFor="goal-title" className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
                 <Target className="w-3.5 h-3.5 text-dark-accent" />
                 Goal Title
               </label>
               <input
+                id="goal-title"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -106,11 +135,12 @@ const GoalCreate: React.FC = () => {
             </div>
 
             <div className="flex flex-col">
-              <label className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
+              <label htmlFor="goal-description" className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-dark-accent" />
                 Detailed Description
               </label>
               <textarea
+                id="goal-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 required
@@ -122,11 +152,12 @@ const GoalCreate: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex flex-col">
-                <label className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
+                <label htmlFor="goal-deadline" className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-dark-accent" />
                   Target Deadline Date
                 </label>
                 <input
+                  id="goal-deadline"
                   type="date"
                   value={deadline}
                   min={new Date().toISOString().split('T')[0]}
@@ -137,10 +168,11 @@ const GoalCreate: React.FC = () => {
               </div>
 
               <div className="flex flex-col">
-                <label className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
+                <label htmlFor="goal-time" className="text-xs font-semibold text-dark-muted mb-2 tracking-wide uppercase flex items-center gap-1.5">
                   Target Deadline Time
                 </label>
                 <input
+                  id="goal-time"
                   type="time"
                   value={time}
                   onChange={(e) => setTime(e.target.value)}

@@ -66,6 +66,7 @@ const GoalDetails: React.FC = () => {
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
   const [recoveryData, setRecoveryData] = useState<any>(null);
   const [applyingPlan, setApplyingPlan] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   // Form states for Check-In
   const [updateText, setUpdateText] = useState('');
@@ -107,6 +108,16 @@ const GoalDetails: React.FC = () => {
     e.preventDefault();
     setCheckInError(null);
 
+    if (!updateText.trim() || updateText.trim().length < 5) {
+      setCheckInError('Check-in details text must be at least 5 characters.');
+      return;
+    }
+
+    if (Number(estimatedHoursRemaining) < 0) {
+      setCheckInError('Estimated remaining hours cannot be negative.');
+      return;
+    }
+
     if (executionStatus === 'BLOCKED' && !blockerDescription.trim()) {
       setCheckInError('Blocker description is required when status is Blocked');
       return;
@@ -130,8 +141,15 @@ const GoalDetails: React.FC = () => {
       setBlockerDescription('');
       setIsCheckInOpen(false);
       
+      // Trigger confetti on 100% completion
+      if (progressPercentage === 100) {
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 5000);
+      }
+      
       // Refresh Data
       queryClient.invalidateQueries({ queryKey: ['goal', goalId] });
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
     } catch (err: any) {
       setCheckInError(err.response?.data?.message || 'Failed to submit check-in');
     } finally {
@@ -182,6 +200,7 @@ const GoalDetails: React.FC = () => {
       if (response.data.success) {
         setIsRecoveryOpen(false);
         queryClient.invalidateQueries({ queryKey: ['goal', goalId] });
+        queryClient.invalidateQueries({ queryKey: ['goals'] });
       } else {
         setRecoveryError(response.data.message || 'Failed to apply recovery plan');
       }
@@ -252,29 +271,29 @@ const GoalDetails: React.FC = () => {
   const analyzerReport = goal.agentReports?.find(
     (report) => report.agentType === 'GOAL_ANALYZER'
   );
-  const aiMetadata = analyzerReport?.metadata
-    ? (typeof analyzerReport.metadata === 'string'
-        ? JSON.parse(analyzerReport.metadata)
-        : analyzerReport.metadata)
-    : null;
-
   const riskReport = goal.agentReports?.find(
     (report) => report.agentType === 'RISK'
   );
-  const riskMetadata = riskReport?.metadata
-    ? (typeof riskReport.metadata === 'string'
-        ? JSON.parse(riskReport.metadata)
-        : riskReport.metadata)
-    : null;
-
   const standupReport = goal.agentReports?.find(
     (report) => report.agentType === 'STANDUP'
   );
-  const standupMetadata = standupReport?.metadata
-    ? (typeof standupReport.metadata === 'string'
-        ? JSON.parse(standupReport.metadata)
-        : standupReport.metadata)
-    : null;
+
+  const parseMetadata = (report: any) => {
+    if (!report || !report.metadata) return null;
+    try {
+      if (typeof report.metadata === 'string') {
+        return JSON.parse(report.metadata);
+      }
+      return report.metadata;
+    } catch (e) {
+      console.error(`Failed to parse metadata for ${report.agentType}:`, e);
+      return null;
+    }
+  };
+
+  const aiMetadata = parseMetadata(analyzerReport);
+  const riskMetadata = parseMetadata(riskReport);
+  const standupMetadata = parseMetadata(standupReport);
 
   return (
     <div className="min-h-screen bg-dark-bg text-dark-text pb-16">
@@ -428,17 +447,29 @@ const GoalDetails: React.FC = () => {
               </h3>
 
               {goal.tasks.length === 0 ? (
-                <p className="text-sm text-dark-muted text-center py-6">No tasks generated for this goal.</p>
+                <div className="text-center py-8 px-4 border border-dashed border-dark-border/40 rounded-xl bg-dark-card/10">
+                  <Clock className="w-10 h-10 text-dark-muted/40 mx-auto mb-3 animate-pulse" />
+                  <p className="text-sm text-white font-semibold font-outfit mb-1">Planning Agent is generating details</p>
+                  <p className="text-xs text-dark-muted leading-relaxed max-w-sm mx-auto">
+                    ActionPilot is setting up your milestones checklist. This takes just a few seconds. If it takes longer, try triggering a manual monitoring sweep.
+                  </p>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {goal.tasks.map((task) => (
                     <div 
                       key={task.id} 
                       onClick={() => handleTaskToggle(task)}
-                      className={`p-4 rounded-lg border transition duration-200 cursor-pointer flex items-start gap-4 ${
+                      className={`p-4 rounded-lg border border-l-4 transition duration-200 cursor-pointer flex items-start gap-4 ${
                         task.status === 'COMPLETED' 
-                          ? 'bg-dark-border/10 border-dark-border/30' 
+                          ? 'bg-dark-border/10 border-dark-border/30 border-l-dark-muted/40' 
                           : 'bg-dark-card/40 border-dark-border/40 hover:border-dark-accent/40'
+                      } ${
+                        task.status !== 'COMPLETED' && task.priority === 'HIGH'
+                          ? 'border-l-rose-500/80'
+                          : task.status !== 'COMPLETED' && task.priority === 'MEDIUM'
+                          ? 'border-l-amber-500/80'
+                          : 'border-l-gray-500/40'
                       }`}
                     >
                       <button className="mt-0.5 flex-shrink-0 text-dark-accent">
@@ -583,12 +614,19 @@ const GoalDetails: React.FC = () => {
                   )}
 
                   {standupMetadata.followUpQuestions && standupMetadata.followUpQuestions.length > 0 && (
-                    <div className="bg-dark-border/10 border border-dark-border/30 p-3 rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase font-bold text-indigo-400 block">Accountability Check</span>
+                    <div className="bg-dark-border/10 border border-dark-border/30 p-3 rounded-lg space-y-2">
+                      <span className="text-[10px] uppercase font-bold text-indigo-400 block">Accountability Check (Click to reply)</span>
                       {standupMetadata.followUpQuestions.map((q: string, i: number) => (
-                        <p key={i} className="text-xs text-white italic leading-relaxed font-sans">
+                        <button 
+                          key={i} 
+                          onClick={() => {
+                            setUpdateText(`Replying to: "${q}"\n-> `);
+                            setIsCheckInOpen(true);
+                          }}
+                          className="text-xs text-white italic leading-relaxed font-sans text-left block hover:text-indigo-300 hover:bg-dark-accent/5 p-1.5 rounded transition w-full border border-transparent hover:border-dark-accent/20"
+                        >
                           "{q}"
-                        </p>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -938,6 +976,43 @@ const GoalDetails: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Confetti Overlay */}
+      {showConfetti && (
+        <div className="fixed inset-0 pointer-events-none z-[100] flex items-center justify-center overflow-hidden">
+          <style>{`
+            @keyframes fall {
+              0% { transform: translateY(-50px) rotate(0deg); opacity: 1; }
+              100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+            }
+            .animate-fall {
+              animation-name: fall;
+            }
+          `}</style>
+          {[...Array(50)].map((_, i) => {
+            const left = Math.random() * 100;
+            const delay = Math.random() * 3;
+            const size = Math.random() * 20 + 15;
+            const emoji = ['🎉', '✨', '🚀', '🎯', '🏆', '⭐'][Math.floor(Math.random() * 6)];
+            return (
+              <span 
+                key={i}
+                className="absolute animate-fall"
+                style={{
+                  left: `${left}%`,
+                  fontSize: `${size}px`,
+                  animationDelay: `${delay}s`,
+                  animationDuration: '4s',
+                  animationIterationCount: 'infinite',
+                  animationTimingFunction: 'linear'
+                }}
+              >
+                {emoji}
+              </span>
+            );
+          })}
         </div>
       )}
     </div>

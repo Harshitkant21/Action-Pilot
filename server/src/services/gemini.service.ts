@@ -1,9 +1,10 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { appConfig } from '../config/appConfig';
 
 // ── Initialization ──────────────────────────────────────────────────────────
 
 const getModel = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = appConfig.geminiApiKey;
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     return null;
   }

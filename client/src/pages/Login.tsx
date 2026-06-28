@@ -18,6 +18,18 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setError('Please enter a valid email address.');
+        setLoading(false);
+        return;
+      }
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters.');
+        setLoading(false);
+        return;
+      }
+
       const response = await api.post('/auth/login', { email, password });
       if (response.data.success && response.data.token) {
         await login(response.data.token);

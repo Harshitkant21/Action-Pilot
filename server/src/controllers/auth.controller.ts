@@ -4,12 +4,17 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { prisma } from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { appConfig } from '../config/appConfig';
 
-// Validation Schemas
+const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&^#()_\-+=])[A-Za-z\d@$!%*?&^#()_\-+=]{8,}$/;
+
 const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().regex(
+    passwordRegex,
+    'Password must be at least 8 characters long, contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&^#()_-+=).'
+  ),
 });
 
 const loginSchema = z.object({
@@ -84,11 +89,11 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    const tokenSecret = process.env.JWT_SECRET || 'super-secret-key-change-in-production';
+    const tokenSecret = appConfig.jwtSecret;
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name },
       tokenSecret,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
+      { expiresIn: appConfig.jwtExpiresIn as any }
     );
 
     return res.status(200).json({

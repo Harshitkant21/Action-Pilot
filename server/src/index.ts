@@ -6,8 +6,9 @@ import app from './app';
 import { prisma } from './config/prisma';
 import { setupRepeatableJobs } from './queues/monitoring.queue';
 import './workers/monitoring.worker'; // Boot background worker
+import { appConfig } from './config/appConfig';
 
-const PORT = process.env.PORT || 3001;
+const PORT = appConfig.port;
 
 async function bootstrap() {
   try {

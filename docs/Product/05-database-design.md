@@ -400,6 +400,27 @@ Create indexes on:
 
 ---
 
+# PushSubscriptions
+
+## Purpose
+
+Stores Web Push notification credentials (endpoints and encryption keys) registered by user browsers to receive active push notifications.
+
+---
+
+## Fields
+
+| Field      | Type      |
+| ---------- | --------- |
+| id         | UUID      |
+| user_id    | UUID      |
+| endpoint   | String    |
+| p256dh     | String    |
+| auth       | String    |
+| created_at | Timestamp |
+
+---
+
 # Future Extensions
 
 The schema supports future additions such as:

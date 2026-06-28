@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { evaluateRisk } from '../services/gemini.service';
+import { sendPushNotification } from './notification.controller';
 
 const createCheckInSchema = z.object({
   goalId: z.string().uuid(),
@@ -108,6 +109,28 @@ export const createProgressUpdate = async (req: AuthenticatedRequest, res: Respo
         riskScore: riskScore,
       },
     });
+
+    if (body.progressPercentage === 100) {
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: req.user.id,
+            type: 'GOAL_COMPLETION',
+            title: 'Goal Completed!',
+            message: `Congratulations! You have completed your goal: "${goal.title}".`,
+          },
+        });
+        // Dispatch Web Push notification
+        await sendPushNotification(
+          req.user.id,
+          'Goal Completed! 🎉',
+          `Congratulations! You have completed your goal: "${goal.title}".`
+        );
+      } catch (notifyError) {
+        console.error('Failed to create goal completion notification:', notifyError);
+      }
+    }
+
 
     return res.status(201).json({
       success: true,

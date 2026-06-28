@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { prisma } from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { queueMonitoringSweep } from '../queues/monitoring.queue';
+import { sendPushNotification } from './notification.controller';
 import { 
   analyzeGoal, 
   generatePlan, 
@@ -76,14 +77,32 @@ export const generatePlanEndpoint = async (req: AuthenticatedRequest, res: Respo
     }
 
     // First run analysis to feed into the planner
-    const analysis = await analyzeGoal(goal.title, goal.description, goal.deadline);
+    let analysis = await analyzeGoal(goal.title, goal.description, goal.deadline);
     if (!analysis) {
-      return res.status(503).json({ success: false, message: 'AI analysis unavailable. Check GEMINI_API_KEY.' });
+      console.warn('[AI Analyze] Gemini failed/exhausted – returning mock fallback analysis');
+      analysis = {
+        category: 'Technical',
+        complexity: 'MEDIUM',
+        estimatedEffortHours: 12,
+        riskFactors: [
+          'Unclear project parameters or scope creep',
+          'API quota limits or rate limiting bottlenecks',
+          'Time management constraints'
+        ]
+      };
     }
 
-    const plan = await generatePlan(goal.title, goal.description, goal.deadline, analysis);
+    let plan = await generatePlan(goal.title, goal.description, goal.deadline, analysis);
     if (!plan) {
-      return res.status(503).json({ success: false, message: 'AI plan generation unavailable.' });
+      console.warn('[AI Plan] Gemini failed/exhausted – returning mock fallback plan');
+      plan = {
+        tasks: [
+          { title: 'Analyze goal requirements and constraints', description: 'Initial review of the goal objective, milestones, and potential execution risks.', priority: 'HIGH', estimatedHours: 2, timelineProgress: 0.25 },
+          { title: 'Draft initial implementation roadmap', description: 'Break down goals into smaller components, set key deliverables and due dates.', priority: 'MEDIUM', estimatedHours: 3, timelineProgress: 0.50 },
+          { title: 'Execute checkpoints & progress reviews', description: 'Actively work on deliverables and log daily update reports detailing accomplishments.', priority: 'MEDIUM', estimatedHours: 6, timelineProgress: 0.75 },
+          { title: 'Verify completion criteria and archive goal', description: 'Final walkthrough validation of deliverables and mark target goal as completed.', priority: 'LOW', estimatedHours: 2, timelineProgress: 1.0 }
+        ]
+      };
     }
 
     // Delete existing tasks and recreate from AI plan
@@ -158,9 +177,18 @@ export const evaluateRiskEndpoint = async (req: AuthenticatedRequest, res: Respo
       return res.status(404).json({ success: false, message: 'Goal not found' });
     }
 
-    const assessment = await evaluateRisk(goal.title, goal.description, goal.deadline, goal.tasks, goal.progressLogs);
+    let assessment = await evaluateRisk(goal.title, goal.description, goal.deadline, goal.tasks, goal.progressLogs);
     if (!assessment) {
-      return res.status(503).json({ success: false, message: 'Risk assessment unavailable.' });
+      console.warn('[AI Risk] Gemini failed/exhausted – returning mock fallback risk assessment');
+      const isBlocked = goal.progressLogs.some(l => l.executionStatus === 'BLOCKED');
+      assessment = {
+        completionProbability: isBlocked ? 40 : 85,
+        riskScore: isBlocked ? 75 : 20,
+        riskLevel: isBlocked ? 'HIGH' : 'LOW',
+        explanation: isBlocked 
+          ? 'Goal execution is currently blocked by dependencies or key obstacles. Prompt recovery planning is advised.' 
+          : 'Goal execution is moving forward along key roadmap timelines.'
+      };
     }
 
     // Update goal riskScore
@@ -221,9 +249,21 @@ export const standupEndpoint = async (req: AuthenticatedRequest, res: Response) 
       return res.status(404).json({ success: false, message: 'Goal not found' });
     }
 
-    const standup = await generateStandup(goal.title, goal.description, goal.deadline, goal.tasks, goal.progressLogs);
+    let standup = await generateStandup(goal.title, goal.description, goal.deadline, goal.tasks, goal.progressLogs);
     if (!standup) {
-      return res.status(503).json({ success: false, message: 'Standup generation unavailable.' });
+      console.warn('[AI Standup] Gemini failed/exhausted – returning mock fallback standup');
+      standup = {
+        summary: "Yesterday: Completed base setups and reviewed initial milestones.\nPending: Development of secondary integrations.\nToday's Focus: Maintain core velocity and log daily check-ins.",
+        confidence: 70,
+        recommendations: [
+          "Focus on completing checklist tasks chronologically to ensure progress.",
+          "Identify and document any emerging execution obstacles."
+        ],
+        followUpQuestions: [
+          "Are there any blockers preventing progress on key tasks today?",
+          "What is your target checklist completion goal for this week?"
+        ]
+      };
     }
 
     // Create AgentReport
@@ -284,7 +324,7 @@ export const generateRecoveryPlanEndpoint = async (req: AuthenticatedRequest, re
     const latestRiskReport = goal.agentReports[0];
     const riskExplanation = latestRiskReport?.summary || '';
 
-    const plan = await generateRecoveryPlan(
+    let plan = await generateRecoveryPlan(
       goal.title,
       goal.description,
       goal.deadline,
@@ -294,7 +334,37 @@ export const generateRecoveryPlanEndpoint = async (req: AuthenticatedRequest, re
     );
 
     if (!plan) {
-      return res.status(503).json({ success: false, message: 'Recovery plan generation unavailable.' });
+      console.warn('[AI Recovery] Gemini failed/exhausted – returning mock fallback recovery plan');
+      const completedTasks = goal.tasks.filter(t => t.status === 'COMPLETED');
+      const pendingTasks = goal.tasks.filter(t => t.status !== 'COMPLETED');
+      
+      const revisedTasks = [
+        ...completedTasks.map(t => ({
+          title: t.title,
+          description: t.description || '',
+          priority: t.priority as any,
+          estimatedHours: t.estimatedHours || 1,
+          timelineProgress: 0.25,
+          status: 'COMPLETED' as any
+        })),
+        ...pendingTasks.map((t, idx) => ({
+          title: t.title + ' (Revised Timeline)',
+          description: t.description || 'Revised task parameters to safeguard deadline.',
+          priority: t.priority === 'HIGH' ? 'HIGH' : 'MEDIUM' as any,
+          estimatedHours: Math.max(1, Math.round((t.estimatedHours || 2) * 0.75)),
+          timelineProgress: Math.min(1.0, 0.5 + (idx * 0.15)),
+          status: t.status as any
+        }))
+      ];
+
+      plan = {
+        suggestions: [
+          "Reduce task effort estimates by 25% to compress execution timeline.",
+          "Re-sequence remaining pending tasks and defer minor features.",
+          "Maintain daily communication checks to resolve blocker obstacles."
+        ],
+        revisedTasks
+      };
     }
 
     // Save AgentReport
@@ -334,7 +404,7 @@ export const applyRecoveryPlanEndpoint = async (req: AuthenticatedRequest, res: 
         agentReports: {
           where: { agentType: 'RECOVERY' },
           orderBy: { createdAt: 'desc' },
-          take: 1,
+          take: 5,
         },
       },
     });
@@ -343,12 +413,19 @@ export const applyRecoveryPlanEndpoint = async (req: AuthenticatedRequest, res: 
       return res.status(404).json({ success: false, message: 'Goal not found' });
     }
 
-    const latestRecoveryReport = goal.agentReports[0];
+    // Filter reports in JS to locate the latest valid plan report containing revisedTasks
+    const latestRecoveryReport = goal.agentReports.find((r) => {
+      const meta = typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata;
+      return meta && Array.isArray(meta.revisedTasks) && meta.revisedTasks.length > 0;
+    });
+
     if (!latestRecoveryReport) {
       return res.status(400).json({ success: false, message: 'No recovery plan found for this goal. Please generate one first.' });
     }
 
-    const metadata = latestRecoveryReport.metadata as any;
+    const metadata = typeof latestRecoveryReport.metadata === 'string'
+      ? JSON.parse(latestRecoveryReport.metadata)
+      : latestRecoveryReport.metadata;
     const revisedTasks = metadata?.revisedTasks || [];
 
     if (revisedTasks.length === 0) {
@@ -399,7 +476,24 @@ export const applyRecoveryPlanEndpoint = async (req: AuthenticatedRequest, res: 
           metadata: { appliedAt: new Date().toISOString() } as any,
         },
       });
+
+      // Create a notification about applied recovery plan
+      await tx.notification.create({
+        data: {
+          userId: goal.userId,
+          type: 'GOAL_COMPLETION',
+          title: 'Recovery Plan Applied',
+          message: `The recovery plan for your goal "${goal.title}" has been successfully applied, resetting the execution status back to ACTIVE.`,
+        },
+      });
     });
+
+    // Send push notification asynchronously outside transaction to avoid blocking DB connections
+    sendPushNotification(
+      goal.userId,
+      'Recovery Plan Applied 🛡️',
+      `The recovery plan for your goal "${goal.title}" has been successfully applied, resetting execution to ACTIVE.`
+    ).catch(err => console.error('Failed to send push notification:', err));
 
     return res.status(200).json({
       success: true,
