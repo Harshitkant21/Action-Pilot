@@ -15,9 +15,9 @@ const environmentSchema = z.object({
     isProduction ? "" : "postgresql://actionpilotdb:actionpilotdbpassword@localhost:5432/actionpilot?schema=public"
   ),
   
-  REDIS_URL: z.string().refine(url => url.startsWith("redis://"), {
+  REDIS_URL: z.string().refine(url => url.startsWith("rediss://"), {
     message: "REDIS_URL must start with redis://"
-  }).default('redis://localhost:6379'),
+  }).default('rediss://localhost:6379'),
 
   JWT_SECRET: isProduction
     ? z.string().min(32, "JWT_SECRET must be at least 32 characters in production")

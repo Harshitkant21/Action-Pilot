@@ -1,0 +1,488 @@
+# PROJECT DESCRIPTION: ACTIONPILOT
+
+## Executive Summary
+
+* **Project Name:** ActionPilot
+* **One-line Tagline:** An autonomous AI execution companion that monitors progress, assesses deadline risks, and dynamically generates adaptive recovery plans for complex goals.
+* **Product Summary:** ActionPilot is a production-ready, AI-driven productivity platform designed to bridge the gap between goal planning and successful execution. Unlike traditional, passive task managers that rely entirely on manual user upkeep, ActionPilot introduces an active monitoring ecosystem. Powered by five specialized AI agents integrated with the Gemini API, a robust background worker architecture driven by Redis and BullMQ, and real-time Web Push notification systems, the platform proactively tracks project telemetry, detects risk of deadline slippage, and constructs optimized recovery plans to keep users on track.
+
+---
+
+## 1. Problem Statement
+
+In the modern knowledge-work landscape, the primary obstacle to productivity is not the lack of tools, but the passive nature of the tools themselves. Conventional task managers (e.g., Trello, Todoist, Asana) operate as structured databases—digital filing cabinets that require constant manual updates, proactive configuration, and continuous human discipline to remain useful. 
+
+When execution deviations occur, these tools fail to adapt. This dynamic leads to several critical issues in personal and team execution:
+
+### 1.1 The Planning Fallacy and Goal Ambiguity
+Humans are notoriously bad at estimating effort and predicting risk, a cognitive bias known as the planning fallacy. Users frequently set overly ambitious deadlines or define high-level goals without understanding the concrete sub-steps required to execute them. Traditional tools accept any user input uncritically, resulting in project boards that are outdated within days of creation.
+
+### 1.2 The Execution Blindspot
+Passive tools have no concept of project telemetry. They do not know if a user has stopped working, if a task is taking three times longer than estimated, or if a minor blocker will cascade into a major project delay. There is a lack of continuous, objective feedback during the execution phase.
+
+### 1.3 The Accountability Vacuum
+Traditional platforms rely on the user having the self-discipline to open the app, log updates, and hold themselves accountable. When users fall behind, they often experience "tool avoidance," where the sight of an overflowing, red-labeled inbox of overdue tasks causes cognitive overload and abandonment.
+
+### 1.4 The Recovery Bottleneck
+Once a project falls behind, restructuring it is a high-friction cognitive task. The user must manually recalculate timelines, deprioritize tasks, reduce scope, or push deadlines. In team environments, this requires meetings; in individual workflows, it often leads to project abandonment because the path to recovery is unclear.
+
+> [!IMPORTANT]
+> ActionPilot was built to convert the task manager from a **passive ledger** into an **active execution copilot** that solves planning, accountability, monitoring, and recovery autonomously.
+
+---
+
+## 2. Solution Overview
+
+ActionPilot solves the execution gap by wrapping a traditional task management system in an autonomous, agentic feedback loop. The system acts as a persistent project manager that works in the background while the user focuses on execution.
+
+```
++----------------+      +-------------------+      +---------------------+
+|   User Goal    | ---> | AI Goal Analyzer  | ---> |  AI Planning Agent  |
+|  (Ambiguous)   |      | (Categorize/Risk) |      | (Actionable Tasks)  |
++----------------+      +-------------------+      +---------------------+
+                                                              |
+                                                              v
++----------------+      +-------------------+      +---------------------+
+|   Goal Status  | <--- | Background Sweeps | <--- |   User Execution    |
+| (Active/Risk)  |      |  (Risk/Standup)   |      |  & Progress Logs    |
++----------------+      +-------------------+      +---------------------+
+        |
+        +-------------> [High Risk (>70%)] ---> AI Recovery Agent
+                                                (Optimized Plan generated)
+```
+
+The core workflow consists of the following phases:
+
+1. **Strategic Goal Entry:** The user inputs a high-level goal, brief description, and target deadline.
+2. **AI-Assisted Initialization:** The system routes the goal to the **AI Goal Analyzer Agent**, which assesses complexity, estimates effort in hours, and identifies potential risk factors.
+3. **Structured Plan Generation:** The **AI Planning Agent** immediately digests the analysis and decomposes the goal into a chronological sequence of 4–7 prioritized tasks with realistic hourly estimates.
+4. **Active Execution Telemetry:** The user marks tasks as completed or logs granular check-ins. During check-ins, the user provides a qualitative status update, defines their confidence level (1-5), and explicitly flags any active blockers.
+5. **Autonomous Background Sweeps:** A BullMQ background worker, running periodically via Redis, sweeps active goals. It executes three background agents:
+   * **Inactivity Monitor:** Alerts the user via Web Push if no progress logs are submitted within 24 hours.
+   * **AI Risk Agent:** Evaluates task velocity, blocker descriptions, and confidence trends to calculate a target deadline completion probability. If the risk score exceeds 70%, the goal status transitions to `AT_RISK`.
+   * **AI Standup Coach:** Generates a structured daily briefing covering completed, pending, and critical path items, suggesting daily focus areas.
+6. **Dynamic Recovery Loop:** When the Risk Agent flags a goal as `AT_RISK`, the **AI Recovery Agent** is triggered. It reviews the current blockers, remaining tasks, and time constraints to formulate specific recovery suggestions and rebuild an optimized task checklist, preserving all completed tasks while restructuring pending items.
+
+---
+
+## 3. Key Features
+
+ActionPilot is composed of 14 key production-implemented features:
+
+### 3.1 User Authentication
+* **Purpose:** Secures user data and provides multi-tenant isolation.
+* **How it Works:** Built using standard Express middleware. User passwords are encrypted using `bcryptjs` with a cost factor of 10. Upon successful login, the backend issues a JSON Web Token (JWT) signed with a secure HS256 secret. The token is stored on the client and sent in the `Authorization` header for subsequent requests.
+* **User Benefit:** Ensures absolute privacy and security of strategic goals, project tasks, and progress telemetry.
+
+### 3.2 Goal Management
+* **Purpose:** Enables structured storage and tracking of high-level objectives.
+* **How it Works:** Implements a full RESTful CRUD interface for the `Goal` model. Each goal maps to a user and tracks progress logs, task checklists, and AI agent reports. A goal progresses through defined states: `DRAFT`, `PLANNED`, `ACTIVE`, `AT_RISK`, `DELAYED`, `COMPLETED`, and `ARCHIVED`.
+* **User Benefit:** Organizes unstructured ideas into formal, trackable projects with distinct lifecycle phases.
+
+### 3.3 AI Goal Analyzer
+* **Purpose:** Mitigates the planning fallacy by validating goal parameters before work begins.
+* **How it Works:** Sends the goal title, description, and deadline to the Gemini API (`gemini-2.5-flash`). The agent parses the inputs, maps the goal to a standard category (e.g., Technical, Business), determines complexity (`LOW`, `MEDIUM`, `HIGH`), estimates effort in hours, and identifies 2-4 critical execution risk factors.
+* **User Benefit:** Gives users an objective, data-backed assessment of whether their goal is realistic relative to the deadline.
+
+### 3.4 AI Planning Agent
+* **Purpose:** Deconstructs abstract goals into actionable execution paths.
+* **How it Works:** Takes the goal metadata and the Goal Analyzer's output to construct a structured execution plan. It returns 4 to 7 tasks, each containing an actionable title, description, priority, estimated hours, and a chronological timeline progress offset (0.0 to 1.0) indicating its placement in the schedule.
+* **User Benefit:** Saves cognitive energy by automating the task-breakdown phase and creating a logical timeline.
+
+### 3.5 Task Prioritization
+* **Purpose:** Ensures the user focuses on high-impact items.
+* **How it Works:** Tasks are tagged with `LOW`, `MEDIUM`, or `HIGH` priority. The user can view priority levels on the task board, and the AI agents utilize priority weights when evaluating completion risk.
+* **User Benefit:** Prevents users from wasting time on low-priority items while critical milestones are slipping.
+
+### 3.6 Progress Check-ins
+* **Purpose:** Captures qualitative and quantitative execution telemetry.
+* **How it Works:** Rather than just checking off tasks, users submit a detailed progress log. The schema captures a descriptive text update, progress percentage, execution status (`ON_TRACK`, `BEHIND`, `BLOCKED`), blocker descriptions, estimated hours remaining, and user confidence scores (1 to 5).
+* **User Benefit:** Promotes reflection and collects the clean data required for accurate background AI evaluations.
+
+### 3.7 AI Risk Assessment
+* **Purpose:** Continuously calculates the probability of missing project deadlines.
+* **How it Works:** Triggered in the background. It analyzes the remaining tasks, remaining time, historical check-ins, confidence trend lines, and blocker text. It calculates a completion probability (0-100%) and a risk score, categorizing risk as `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL`.
+* **User Benefit:** Warns the user of project slippage days or weeks before the deadline, preventing last-minute failures.
+
+### 3.8 AI Standup Coach
+* **Purpose:** Provides daily accountability and guides daily execution.
+* **How it Works:** Generates a structured daily briefing containing three components: a review of yesterday's output, a list of pending tasks, and today's critical path focus. It also returns direct accountability questions and actionable recommendations to maintain velocity.
+* **User Benefit:** Simulates having a dedicated project manager checking in daily to focus attention on what matters.
+
+### 3.9 AI Recovery Planner
+* **Purpose:** Automates replanning when projects fall behind or encounter critical blockers.
+* **How it Works:** Triggered when the goal's risk score exceeds the risk threshold (70%). The agent analyzes the failures, proposes 2-3 specific recovery strategies (e.g., deferring non-essential tasks, reducing scope), and outputs a revised list of tasks, carefully preserving all completed tasks.
+* **User Benefit:** Replaces the stress of replanning with an optimized, immediate recovery path.
+
+### 3.10 Background Monitoring
+* **Purpose:** Automates systemic checks without requiring active user sessions.
+* **How it Works:** A BullMQ background worker polls Redis for scheduled jobs. A repeatable job sweeps all active, at-risk, and delayed goals at defined intervals (default: 1 hour) to run inactivity checks, risk evaluations, standup briefing updates, and recovery sweeps.
+* **User Benefit:** Operates silently in the background, ensuring accountability even when the user is offline.
+
+### 3.11 Smart Notifications
+* **Purpose:** Delivers high-priority alerts to the user.
+* **How it Works:** An internal notifications table logs structured messages mapped to distinct types (`DAILY_STANDUP`, `RISK_ALERT`, `PROGRESS_REMINDER`, `RECOVERY_SUGGESTION`, `GOAL_COMPLETION`). The frontend displays a persistent, unread-badge notification center.
+* **User Benefit:** Centralizes all system updates, AI reports, and alerts in a readable notification feed.
+
+### 3.12 Browser Push Notifications
+* **Purpose:** Reaches the user even when the application is closed.
+* **How it Works:** Implements the Web Push protocol using VAPID keys. The browser requests push permissions and registers a Service Worker. The backend stores subscription endpoints. When the background worker generates an alert (e.g., high risk or inactivity), it pushes an encrypted payload directly to the user's OS notification center.
+* **User Benefit:** Increases retention and ensures critical risk alerts are seen immediately.
+
+### 3.13 Goal Completion Celebration
+* **Purpose:** Reinforces positive execution loops through micro-interactions.
+* **How it Works:** When a progress log updates a goal's progress to exactly 100%, the frontend state triggers a canvas-confetti animation.
+* **User Benefit:** Provides psychological closure and celebration, encouraging positive habit loops.
+
+### 3.14 Responsive UI
+* **Purpose:** Delivers a seamless experience across desktop, tablet, and mobile.
+* **How it Works:** Built with Tailwind CSS using a mobile-first responsive grid system. The interface handles navigation transitions, modal presentation, and charts fluidly across viewports.
+* **User Benefit:** Allows users to log check-ins, view tasks, and check standups on the go from their phone or at their desk.
+
+---
+
+## 4. System Architecture
+
+ActionPilot uses a decoupled, three-tier architecture designed for low latency, secure data management, and background task execution. 
+
+```
+                                  +-------------------+
+                                  |   User Browser    |
+                                  | (React Client App)|
+                                  +-------------------+
+                                    ^               |
+                     Push Alerts    |               | HTTPS REST Requests
+                     (VAPID Encrypted)              | (JWT Auth)
+                                    |               v
+                                  +-------------------+
+                                  |  Express Backend  |
+                                  |    (API Node)     |
+                                  +-------------------+
+                                    |        |      |
+                        Prisma Client        |      | Push Trigger
+                                    |        |      v
+                                    v        |   +-------------------+
+                       +------------+        |   | Web Push Service  |
+                       | PostgreSQL |        |   +-------------------+
+                       |  Database  |        |
+                       +------------+        | Queue Jobs
+                                    ^        | (BullMQ)
+                                    |        v
+                        Prisma Client    +-------------------+
+                                    |    |    Redis Cache    |
+                                    |    |  & Queue Broker   |
+                                    |    +-------------------+
+                                    |        ^
+                                    |        | Poll & Execute
+                                    |        v
+                                  +-------------------+
+                                  |   BullMQ Worker   | <--> [Gemini AI API]
+                                  | (Background Node) |
+                                  +-------------------+
+```
+
+### 4.1 Frontend Layer
+The client application is built with React 18, Vite, and TypeScript. It uses Tailwind CSS for visual presentation.
+* **State Management & Caching:** Utilizes `@tanstack/react-query` to manage API data fetching, cache validation, and request retries. This decouples local state from remote database state and minimizes network requests.
+* **Client-Side Service Worker:** Implements a custom service worker to listen for incoming push events from the Web Push service and render OS-level notifications when the client tab is inactive.
+
+### 4.2 Backend API Layer
+The backend is an Express server written in TypeScript.
+* **Data Layer (ORM):** Uses Prisma Client to interact with the PostgreSQL database. This provides type-safe queries, automatic migration generation, and relationship validation.
+* **Job Delegation:** The API layer is stateless. When a user creates or updates a goal, the API performs immediate writes to PostgreSQL, registers the change in the client response, and, if required, pushes a job to the Redis queue using BullMQ for asynchronous processing.
+
+### 4.3 Cache & Message Broker (Redis)
+Redis functions as both a transient memory cache and a message broker for the backend system.
+* **BullMQ Integration:** Redis manages the BullMQ state, organizing jobs into task queues, handling retry backoffs, tracking active job locks, and keeping repeatable job schedules.
+* **Shared Connection:** Connects via a centralized, Zod-validated `REDIS_URL`.
+
+### 4.4 Database Layer (PostgreSQL)
+PostgreSQL handles persistent storage. It stores critical relational structures including users, goals, tasks, progress logs, agent reports, system notifications, and push subscription payloads. Database performance is optimized using indexing:
+* `userId` indexes on `goals`, `notifications`, and `push_subscriptions` tables speed up query filtration during user sessions.
+* Date-based indexation on goal deadlines and creation times optimizes backend sweeps.
+
+### 4.5 AI Integration Layer
+The system communicates with the Gemini AI engine using the official `@google/generative-ai` SDK.
+* **Model Selection:** The platform uses `gemini-2.5-flash` for all agent processes. This model offers low latency and supports JSON-schema enforcement, which is critical for parsing agent responses deterministically.
+* **Resilience Configuration:** Built-in validation ensures that if the Gemini API is offline or rate limits are reached, the system falls back to predefined default structures and records a fallback report rather than crashing the background worker.
+
+### 4.6 Background Worker Layer
+The BullMQ worker operates as a separate process or decoupled logical block in the backend. It continuously polls Redis, picks up scheduled sweeps (such as `check-active-goals`), executes the business logic, writes outcomes to PostgreSQL, and triggers push alerts.
+
+---
+
+## 5. AI Agents
+
+ActionPilot implements a multi-agent system, where each agent is tailored to a specific execution phase. All agents enforce strict JSON schema output matching their interface definitions.
+
+| Agent | Purpose | Inputs | Outputs | Decision-Making Logic |
+| :--- | :--- | :--- | :--- | :--- |
+| **Goal Analyzer** | Categorizes and estimates effort for new goals. | Goal Title, Goal Description, Goal Target Deadline, Days Remaining. | Category, Complexity (`LOW`, `MEDIUM`, `HIGH`), Estimated Hours, Risk Factors (2-4). | Compares time remaining against average effort. Identifies scope-based risks. |
+| **Planning Agent** | Generates an initial execution plan. | Goal Title, Description, Deadline, Category, Complexity, Estimated Hours. | List of 4-7 tasks (Title, Description, Priority, Hours, Timeline Offset). | Creates a chronological, dependency-aware plan. Aligns task hours to analyzer estimates. |
+| **Risk Agent** | Calculates probability of deadline slippage. | Goal Title, Description, Deadline, Time Remaining, Task Checklist, Progress Logs. | Completion Probability, Risk Score, Risk Level, Assessment Explanation. | Evaluates progress velocity, user confidence trends, and blocker severity. |
+| **Standup Coach** | Generates daily briefings and questions. | Goal Title, Description, Deadline, Task Checklist, Last 5 Progress Logs. | Yesterday/Today Focus Summary, Confidence Level, Recommendations, Follow-Up Questions. | Analyzes yesterday's output vs. critical milestones. Forms direct accountability questions. |
+| **Recovery Agent** | Restructures delayed or blocked goals. | Goal Title, Description, Deadline, Current Tasks, Progress Logs, Risk Assessment. | Recovery Suggestions, Revised Task Checklist. | Formulates scope-reduction strategies. **Preserves completed tasks** while restructuring pending items. |
+
+### 5.1 Goal Analyzer Agent
+* **System Instruction:** Sets the persona of an expert execution coach. It instructs the model to realistically evaluate available calendar time versus effort required, map the goal to standard categories, and isolate concrete risks.
+* **JSON Schema Enforcement:** Enforces properties: `category`, `complexity`, `estimatedEffortHours`, and `riskFactors` (array of strings).
+
+### 5.2 Planning Agent
+* **System Instruction:** Sets the persona of a technical project manager. It mandates generating 4 to 7 tasks mapped chronologically using a float offset (`timelineProgress`) from `0.0` (start) to `1.0` (end).
+* **JSON Schema Enforcement:** Enforces array: `tasks`, containing: `title`, `description`, `priority` (`LOW`/`MEDIUM`/`HIGH`), `estimatedHours`, and `timelineProgress`.
+
+### 5.3 Risk Agent
+* **System Instruction:** Focuses on mathematical and logical risk forecasting. It requires evaluating historical progress entries, checking for blockages, and calculating risk indicators.
+* **JSON Schema Enforcement:** Enforces: `completionProbability`, `riskScore`, `riskLevel` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), and `explanation`.
+
+### 5.4 Standup Coach
+* **System Instruction:** Operates as a supportive yet strict scrum master. It structures a text briefing divided into completed work, outstanding items, and next focus points.
+* **JSON Schema Enforcement:** Enforces: `summary`, `confidence`, `recommendations`, and `followUpQuestions`.
+
+### 5.5 Recovery Agent
+* **System Instruction:** Instructs the model to act as a turnaround manager. It enforces a strict rule: **completed tasks must remain completed and unmodified**. It replans pending tasks by adjusting priorities, changing descriptions, or proposing scope reductions.
+* **JSON Schema Enforcement:** Enforces: `suggestions` and `revisedTasks` (matching the task structure with `status` fields).
+
+---
+
+## 6. User Workflow
+
+The end-to-end user workflow in ActionPilot highlights the interaction between user inputs, database states, and background processes:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Client as React Client
+    participant API as Express API
+    participant DB as PostgreSQL DB
+    participant Queue as Redis Queue
+    participant Worker as BullMQ Worker
+    participant Gemini as Gemini AI API
+
+    User->>Client: Register / Login
+    Client->>API: POST /auth/login
+    API->>Client: Send JWT Token
+    User->>Client: Input Goal Title, Desc, Deadline
+    Client->>API: POST /goals
+    API->>DB: Create Goal (Status: DRAFT)
+    API->>Queue: Push Planning Job
+    API->>Client: Goal Saved (Return ID)
+    Queue->>Worker: Pull Planning Job
+    Worker->>Gemini: analyzeGoal() & generatePlan()
+    Gemini-->>Worker: Return JSON Analysis & Task List
+    Worker->>DB: Save Tasks & AgentReport (Goal Status: PLANNED)
+    Worker->>DB: Create Notification (Goal Ready)
+    Worker-->>User: Push Web Notification (VAPID)
+    Note over User, Client: Goal is now ACTIVE. User works on tasks.
+    User->>Client: Log Progress Check-in (Text, Confidence, Blocker)
+    Client->>API: POST /progress
+    API->>DB: Save Progress Log
+    API->>Queue: Trigger On-demand Sweep
+    Queue->>Worker: Run Sweep Job
+    Worker->>Gemini: evaluateRisk()
+    Gemini-->>Worker: Return Risk Score
+    alt Risk Score >= 70%
+        Worker->>DB: Update Goal Status (AT_RISK)
+        Worker->>Gemini: generateRecoveryPlan()
+        Gemini-->>Worker: Return Suggestions & Revised Tasks
+        Worker->>DB: Save Revised Tasks & Recovery Suggestions
+        Worker->>DB: Save Notification (Recovery Ready)
+        Worker-->>User: Push Recovery Web Notification
+    else Risk Score < 70%
+        Worker->>DB: Goal Status remains ACTIVE
+    end
+    Note over User, Client: User completes all tasks (Progress: 100%)
+    User->>Client: Mark Goal Completed
+    Client->>Client: Trigger Confetti Animation
+```
+
+### 6.1 Initialization
+The user registers and logs in. They navigate to the goal creation page and enter their objective (e.g., "Build MVP for Hackathon") and deadline. Upon submission, a transaction saves the goal as `DRAFT` and queues the setup tasks.
+
+### 6.2 Analysis & Planning
+The background worker picks up the job. It invokes the Goal Analyzer and the Planning Agent sequentially. Tasks are created and saved, and the goal status is updated to `PLANNED`. The user receives a push notification confirming the plan is ready.
+
+### 6.3 Daily Execution & Check-ins
+The goal status updates to `ACTIVE`. As the user works, they mark tasks as completed and log daily progress check-ins. These logs populate the database with metrics like hours remaining and blocker status.
+
+### 6.4 Active Background Monitoring
+Every hour, the background worker sweeps active goals. It checks for inactivity (no updates in 24 hours) and invokes the Risk Agent. The Risk Agent updates the goal's risk score and, if necessary, triggers the Recovery Agent to modify pending tasks. It also runs the Standup Coach once daily to prepare the user's morning briefing.
+
+### 6.5 Project Completion
+Once the user completes the final task and submits a check-in showing 100% progress, the frontend displays the confetti animation. The goal status is updated to `COMPLETED`.
+
+---
+
+## 7. Technology Stack
+
+The technology stack is selected for production readiness, type safety, and clean separation of concerns:
+
+| Layer | Technology | Version | Purpose & Rationale |
+| :--- | :--- | :--- | :--- |
+| **Frontend** | React | `^18.3.1` | Declarative UI library for building dynamic interfaces. |
+| **Build Tool** | Vite | `^5.3.1` | High-performance bundler for fast development. |
+| **Backend** | Express | `^4.19.2` | Lightweight, unopinionated routing framework for Node.js. |
+| **Database** | PostgreSQL | `v15+` | Relational database providing data integrity and ACID transactions. |
+| **ORM** | Prisma | `^5.16.1` | Type-safe ORM for database queries and migration management. |
+| **Authentication** | JWT | `^9.0.2` | Stateless JSON Web Tokens for secure session validation. |
+| **Password Crypt**| bcryptjs | `^2.4.3` | Secure password hashing algorithm (Blowfish-based). |
+| **AI Integration**| Gemini SDK | `^0.24.1` | Native SDK for interacting with `gemini-2.5-flash` model. |
+| **Queue Manager** | BullMQ | `^5.8.5` | Fast, robust queue system for background jobs, running on Redis. |
+| **In-Memory Cache**| Redis | `v7+` | High-performance cache and job broker database. |
+| **Notifications** | Web-Push | `^3.6.7` | Standardized VAPID encryption for browser push notifications. |
+| **Validation** | Zod | `^3.23.8` | Schema declaration and verification library for inputs. |
+| **Styling** | Tailwind CSS | `^3.4.4` | Utility-first CSS framework for custom responsive styling. |
+| **Programming Lang**| TypeScript | `^5.5` / `^6.0`| Static typing for frontend and backend codebases. |
+
+---
+
+## 8. Security Controls
+
+ActionPilot implements enterprise-standard security controls across the request lifecycle:
+
+### 8.1 JWT Authentication
+All client-to-server requests are validated using stateless JSON Web Tokens.
+* The backend inspects the HTTP `Authorization` header for a `Bearer <token>` format.
+* The token is validated using `jsonwebtoken` with an HS256 secret.
+* In production environments, the configuration schema requires the `JWT_SECRET` to be at least 32 characters long.
+* Expired or malformed tokens return an immediate `401 Unauthorized` status.
+
+### 8.2 Cryptographic Hashing
+User passwords are never stored in plain text.
+* The system uses `bcryptjs` to hash passwords before database insertion.
+* A salt rounds cost factor of `10` balances security against hash generation time.
+* Standard validation checks verify the input password against the stored hash during authentication.
+
+### 8.3 Environment Configuration Validation
+To prevent configuration errors in production, the application validates environment variables on startup.
+* The `appConfig.ts` file parses configuration settings through a Zod schema (`environmentSchema`).
+* The validation checks variables like `DATABASE_URL` format, `PORT` ranges (1024-65535), and the presence of necessary keys.
+* If any environment variable is missing or invalid, the process terminates immediately with an error log, preventing misconfigured builds from running.
+
+### 8.4 HTTP Header Security (Helmet)
+The Express backend is secured using the `helmet` middleware. This adds security-focused HTTP response headers to protect against common web vulnerabilities, including:
+* Clickjacking (`X-Frame-Options: SAMEORIGIN`)
+* Cross-Site Scripting (XSS) (`X-Content-Type-Options: nosniff` and CSP headers)
+* Force HTTPS (`Strict-Transport-Security`)
+* Information disclosure (removes the `X-Powered-By` header to hide the backend technology stack)
+
+### 8.5 Zod Payload Validation
+Every input sent to API endpoints is validated before processing.
+* Schemas define expected types, string limits, and required properties for requests (such as check-ins or user creation).
+* Invalid payloads generate a `400 Bad Request` response containing structured field errors, preventing SQL injection attempts or invalid database states.
+
+---
+
+## 9. Scalability
+
+ActionPilot is built using a stateless architecture designed to scale with user growth:
+
+```
+                            +-------------------+
+                            |  Load Balancer    |
+                            +-------------------+
+                                      |
+                 +--------------------+--------------------+
+                 |                                         |
+                 v                                         v
+       +-------------------+                     +-------------------+
+       | Express Server A  |                     | Express Server B  |
+       | (Stateless API)   |                     | (Stateless API)   |
+       +-------------------+                     +-------------------+
+                 |                                         |
+                 +--------------------+--------------------+
+                                      |
+                                      v
+                             +-------------------+
+                             |    Redis Cluster  |
+                             |  (Queue / Cache)  |
+                             +-------------------+
+                                      |
+                 +--------------------+--------------------+
+                 |                                         |
+                 v                                         v
+       +-------------------+                     +-------------------+
+       |   BullMQ Worker   |                     |   BullMQ Worker   |
+       |   (Node Instance) |                     |   (Node Instance) |
+       +-------------------+                     +-------------------+
+```
+
+### 9.1 Stateless API Nodes
+The Express backend keeps no in-memory session states. Sessions are managed using JWTs, allowing API traffic to be distributed across multiple backend nodes behind a load balancer without configuration sync issues.
+
+### 9.2 Asynchronous Job Queue (BullMQ & Redis)
+High-latency tasks—such as AI analysis, risk calculations, standup generations, and push notification dispatches—are offloaded to the background queue. This keeps API response times fast. If background traffic spikes, additional worker instances can be scaled independently to process jobs from the Redis queue.
+
+### 9.3 Database Optimization
+PostgreSQL handles persistent state, and its load is optimized by indexing foreign keys and frequently queried status columns. Connection pooling is managed through the Prisma Client to prevent resource exhaustion during traffic spikes.
+
+---
+
+## 10. Challenges Faced
+
+Developing ActionPilot involved solving several architectural and database integration challenges:
+
+### 10.1 Managing Deterministic AI Output
+* **Challenge:** LLMs often output unstructured or conversational text. However, the application requires structured JSON to update task databases and calculate progress percentages.
+* **Solution:** We configured the Gemini API using the `application/json` MIME type and defined a strict Zod-like response schema directly in the `getGenerativeModel` parameters. This forces the model to return structured data that fits the database models.
+
+### 10.2 Preventing Duplicate Background Jobs
+* **Challenge:** When backend nodes restart or hot-reload during development, redundant BullMQ repeatable jobs can accumulate, causing multiple monitoring runs to execute concurrently.
+* **Solution:** In `monitoring.queue.ts`, the setup logic queries the queue for existing repeatable jobs using `getRepeatableJobs()` and cleanses them by key before scheduling a new periodic run.
+
+### 10.3 Resolving Duplicate `ioredis` Types in TypeScript
+* **Challenge:** The server codebase uses `ioredis` for caching and BullMQ uses its own version. Because the two packages had slightly different versions, TypeScript generated compilation errors during build time due to incompatible internal properties (e.g., `AbstractConnector.connecting` property conflicts).
+* **Solution:** We resolved this by aligning the version of `ioredis` in `server/package.json` to match `5.10.1` (the exact version pinned by `bullmq`). Running `npm install` deduplicated the packages, resolving the type conflict and allowing us to remove the custom wildcard `paths` in `tsconfig.json`.
+
+### 10.4 Web Push Protocol Encryption
+* **Challenge:** Standard HTTP push notifications require complex cryptographic handshakes, and browsers reject push payloads that are not encrypted using the VAPID specification.
+* **Solution:** We integrated the `web-push` library, setting global VAPID details on server initialization, and created a secure subscription validation endpoint to verify client subscriptions.
+
+---
+
+## 11. Future Scope
+
+The platform is designed to allow for future feature integrations:
+
+### 11.1 Calendar & Communications Integration
+* **Calendars:** Bi-directional sync with Google Calendar and Microsoft Outlook. This will allow the system to map task due dates directly to user schedules.
+* **Chat Integrations:** Dedicated Slack and Microsoft Teams bots to allow users to log progress check-ins directly from their workspace chat.
+
+### 11.2 Team Collaboration
+* Multi-user project boards where users can assign tasks, view shared risk reports, and receive alerts about team blockers.
+
+### 11.3 Analytics Dashboard
+* A detailed dashboard visualising execution metrics, including task velocity, average blocker resolution times, and historical AI confidence scores.
+
+### 11.4 Daily Digest Emails
+* Automated HTML email reports summarizing daily standup details, open tasks, and risk assessments.
+
+---
+
+## 12. Innovation
+
+ActionPilot is designed to be an active execution partner. Traditional tools focus on retrospective bookkeeping, whereas ActionPilot introduces a proactive approach:
+
+```
+Passive Task Managers               ActionPilot (Autonomous)
++------------------------+          +------------------------+
+| User enters tasks      |          | AI plans sub-tasks     |
+| User updates board     |          | AI monitors velocity   |
+| board gets outdated    |          | AI predicts risk       |
+| project fails silently |          | AI generates recovery  |
++------------------------+          +------------------------+
+```
+
+* **From Log to Feedback:** Instead of just recording tasks, the system analyzes user entries to assess target deadline feasibility.
+* **Early Warning Risk Assessments:** The Risk Agent flags potential delays before they occur by evaluating qualitative sentiment in check-in logs and tracking execution velocity.
+* **Autonomous Replanning:** When a project falls behind, the Recovery Agent reorganizes the remaining tasks, allowing the user to focus on execution rather than replanning.
+
+---
+
+## 13. Conclusion
+
+ActionPilot is a modern, production-ready solution to the execution gap. By combining React and Express with Redis, BullMQ, PostgreSQL, and the Gemini API, it converts task management from a passive bookkeeping chore into an active, automated partnership. The platform's stateless API, decoupled background workers, and validated configurations demonstrate robust software engineering and scalability, making it ready for deployment to handle real-world user workflows.
+
+---
+*End of Document. Direct submission layout complete.*
